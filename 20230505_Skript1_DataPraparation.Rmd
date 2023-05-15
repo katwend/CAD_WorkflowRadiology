@@ -1,0 +1,312 @@
+---
+title: "Datenaufbereitung"
+output: html_document
+---
+
+# Vorbeitung
+## Pakete laden
+```{r, include=FALSE}
+library(car)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(nlme)
+library(psych)
+library(mvnormtest)
+library(conflicted)
+library(ez)
+library(lm.beta)
+library(sjmisc)
+library(Hmisc)
+library(CTT)
+library(sjlabelled)
+library(lubridate)
+library(hms)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(lpSolve)
+library(irr)
+```
+
+## Daten einlesen
+
+```{r, echo = F}
+getwd()
+setwd("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten")
+daten <- read.csv2("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten/20221018_Rohdaten_PRAEPOST_ANALYSE.csv")
+```
+
+UKB
+setwd("C:/Users/50117334/sciebo/ifps/quantib/Daten")
+daten <- read.csv2("C:/Users/50117334/sciebo/IfPS/quantib/Daten/20221018_Rohdaten_PRAEPOST_ANALYSE.csv")
+
+Laptop
+setwd("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten")
+daten <- read.csv2("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten/20221018_Rohdaten_PRAEPOST_ANALYSE.csv")
+
+# 1. Datenaufbereitung
+
+## Missing Data
+
+Ziel: NA durch Null, bei Häufigkeiten der Unterbrechungen ersetzen
+
+```{r}
+daten <- mutate_at(daten, c("inter1_count", "inter2_count", "inter3_count"), ~replace(., is.na(.), 0))
+```
+
+
+## Zeitdifferenzen
+
+Ziel: Dauer der Abschnitte berechnen, und nicht nur die Start- und Endzeitpunkte vorliegen haben
+
+```{r}
+#t1
+daten$time1 <- strptime(daten$marker1,format='%H:%M:%S')
+daten$time2 <- strptime(daten$marker2,format='%H:%M:%S')
+daten$t1 <- (daten$time2 - daten$time1)
+daten$zeit_t1<- as_hms(daten$t1)
+
+#t2
+daten$time3 <- strptime(daten$marker3,format='%H:%M:%S')
+daten$t2 <- difftime(daten$time3, daten$time2, units = "secs") 
+daten$zeit_t2<- as_hms(daten$t2)
+
+#t3
+daten$time4 <- strptime(daten$end,format='%H:%M:%S')
+daten$t3 <-  difftime(daten$time4, daten$time3, units = "secs")
+daten$zeit_t3<- as_hms(daten$t3)
+
+```
+
+## Bereinigung für Unterbrechungen
+
+Ziel: Dauer der größeren erfassten Unterbrechungnen werden von der absoluten Dauer der einzelnen Abschnitte abgezogen
+
+### Richtiges Format & NA ersetzen
+
+```{r}
+daten$ir1 <- strptime(daten$inter1_time,format='%H:%M:%S')
+daten$ir2 <- strptime(daten$inter2_time,format='%H:%M:%S')
+daten$ir3 <- strptime(daten$inter3_time,format='%H:%M:%S')
+```
+
+### Unterbrechung abziehen
+```{r}
+daten$zeit_t1_format<- strptime(daten$zeit_t1,format='%H:%M:%S')
+daten$t1_cor <- (daten$zeit_t1_format - daten$ir1)
+daten$zeit_t1_cor<- as_hms(daten$t1_cor)
+
+daten$zeit_t2_format<- strptime(daten$zeit_t2,format='%H:%M:%S')
+daten$t2_cor <- difftime(daten$zeit_t2_format, daten$ir2, units = "secs")
+daten$zeit_t2_cor<- as_hms(daten$t2_cor)
+
+daten$zeit_t3_format<- strptime(daten$zeit_t3,format='%H:%M:%S')
+daten$t3_cor <- difftime(daten$zeit_t3_format, daten$ir3, units = "secs")
+daten$zeit_t3_cor<- as_hms(daten$t3_cor)
+```
+
+# 2. Interrater-Reliabilität
+
+Ziel: Berechnung der Interrater-Reliabilität zwischen JK und KW im Falle der Doppelbeobachtungen hinsichtlich der sowohl absoluten als auch korrigierten Zeiten. 
+
+## Datensatz erstellen
+
+```{r}
+irr <- daten[c(29, 30, 31, 32, 38, 39, 40, 41, 42, 43, 44, 45),c( "case", "t1", "t2", "t3", "t1_cor", "t2_cor", "t3_cor")]
+vec <- c("KW", "JK", "KW", "JK", "KW", "JK", "KW", "JK","KW", "JK", "KW", "JK")
+nr <- c(029, 029, 030, 030, 036, 036, 037, 037, 038, 038, 039, 039)
+
+irr$rater <- vec
+irr$nr <- nr
+
+irr.f <- irr[, 2:9]
+```
+
+## Format anpassen
+
+Ziel: Anspassung in das Format, dass die ICC Funktion braucht
+
+```{r}
+require(tidyr)
+df.t <- irr.f %>% tidyr::gather(key=time, value=dv, t1:t3_cor)
+
+irr.t <- pivot_wider(df.t, names_from = rater, values_from = dv)
+```
+
+## IRR
+
+Ziel: Berechnung IRR mittels ICC = Intraklassenkorrelation
+
+Intraklassenkorrelation (ICC) 
+
+[engl. intraclass correlation], [DIA, FSE], umfasst eine Gruppe von Korrelationskoeffizienten, die zur Abschätzung der Stärke des Zusammenhangs für gepaarte Beobachtungen oder zur Abschätzung der Reliabilität von Messwertreihen verwendet werden kann. Eine ICC im Bereich von 0 zeigt zufälliges Beurteilungsverhalten an, ein Wert von 1 eine perfekt zuverlässige Merkmalseinschätzung durch die Beurteiler. Werte größer ,7 werden im Allgemeinen als Indikator für gute Beurteilerübereinstimmung angesehen.
+
+https://dorsch.hogrefe.com/stichwort/intraklassenkorrelation
+
+```{r}
+irr::icc(cbind(irr.t$KW, irr.t$JK), "twoway")
+```
+# 3. Finalen Datensatz erstellen
+
+## JK entfernen
+
+Ziel: Bereinigung des Datensatzes von den Doppelbeobachtungen
+
+```{r}
+drops <- c(30, 32, 39, 41,43, 45)
+
+daten_kw <- daten[-drops,]
+```
+
+
+## Imputation missings t1
+
+###  t1 wenn Session schon erstellt durch NA ersetzen
+
+```{r}
+daten_kw$t1[which(daten_kw$case == "27")] <- NA
+daten_kw$t1[which(daten_kw$case == "28")] <- NA
+daten_kw$t1[which(daten_kw$case == "30")] <- NA
+daten_kw$t1[which(daten_kw$case == "31")] <- NA
+daten_kw$t1[which(daten_kw$case == "34")] <- NA
+daten_kw$t1[which(daten_kw$case == "39")] <- NA
+daten_kw$t1[which(daten_kw$case == "50")] <- NA
+daten_kw$t1[which(daten_kw$case == "921")] <- NA
+
+daten_kw$t1_cor[which(daten_kw$case == "27")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "28")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "30")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "31")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "34")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "39")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "50")] <- NA
+daten_kw$t1_cor[which(daten_kw$case == "921")] <- NA
+```
+
+### Vergleichsdatensatz ohne NA in t1
+
+```{r}
+data2 <- daten_kw[, c( "case", "phase", "pseudo", "inter1_count", "inter2_count","inter3_count","PI.RADS","t1", "t2", "t3", "t1_cor", "t2_cor", "t3_cor")]
+
+data2 <-  na.omit(data2)
+
+data2$time <- data2$t1 + data2$t2 + data2$t3
+
+data2$time_cor <- data2$t1_cor + data2$t2_cor + data2$t3_cor
+
+data2$t23_cor <- data2$t2_cor + data2$t3_cor
+
+data2$inter <- data2$inter1_count + data2$inter2_count+ data2$inter3_count
+
+data2$log_time <- log(as.numeric(data2$time_cor))
+
+data2 <- data2[-c(56, 69, 78),]
+
+write.csv(data2, file = "20230505_imputationvgl.csv")
+
+```
+
+### Imputation t1 
+Mean time corrected t1 Pre: 193.628	
+t1 post: 173.683
+
+```{r}
+daten_kw$t1_mut_cor <- daten_kw$t1_cor
+  
+daten_kw$t1_mut_cor[which(daten_kw$case == "27")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "28")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "30")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "31")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "34")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "39")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "50")] <- 193.628
+daten_kw$t1_mut_cor[which(daten_kw$case == "921")] <- 173.683
+```
+
+## Mittelwerte bilden
+
+t2 & t3 combined for analysis, differentiation post-implementation not possible
+
+```{r}
+daten_kw$stai_m <- rowMeans(daten_kw[, c(18:23)])
+
+daten_kw$tlx_m <- rowMeans(daten_kw[, c(30:35)])
+
+daten_kw$time <- daten_kw$t1 + daten_kw$t2 + daten_kw$t3
+
+daten_kw$time_cor <- daten_kw$t1_mut_cor + daten_kw$t2_cor + daten_kw$t3_cor
+
+daten_kw$t23_cor <- daten_kw$t2_cor + daten_kw$t3_cor
+
+daten_kw$inter <- daten_kw$inter1_count + daten_kw$inter2_count+ daten_kw$inter3_count
+
+final <- daten_kw[, c( "case", "phase", "daytime", "pseudo", "PI.RADS","time_cor", "t1_cor", "t23_cor", "stai_m", "tlx_m", "time", "inter")]
+```
+
+## Outcomes als Logarithmus
+
+```{r}
+final$log_time <- log(as.numeric(final$time_cor))
+final$log_t1 <- log(as.numeric(final$t1_cor))
+final$log_t23 <- log(as.numeric(final$t23_cor))
+final$log_stai <- log(as.numeric(final$stai_m))
+```
+
+
+## Unterbbrechungsrate hinzufügen
+
+Interruptions per Second - kann nach Analyse noch hochskaliert werden
+
+```{r}
+final$time_cor <- as.numeric(final$time_cor)
+final$inter <- as.numeric(final$inter)
+
+
+final$i_rate <- final$inter/final$time_cor
+
+
+```
+
+## Outlier identifizieren
+
+Boxplot und Interquartilsabstand
+
+```{r}
+boxplot(final$time_cor ~ final$phase,
+  ylab = "Zeit"
+)
+
+lower_bound <- quantile(final$time_cor, 0.01)
+upper_bound <- quantile(final$time_cor, 0.99)
+
+outlier_ind <- which(final$time_cor < lower_bound | final$time_cor > upper_bound)
+
+final[outlier_ind, ]
+
+```
+
+### Exclude outliers
+
+906 & 936 weil Ausreißer
+920 weil riesige Unterbrechung
+
+One case had to be deleted due to an interruption lasting over an hour during the MRI reading, two cases were identified as outliers, via the interquartile range rule, leaving a total of 41 cases in the post-implementation phase for data analysis. 
+
+```{r}
+final <- final[-c(56, 69, 78),]
+```
+
+
+# 4. Nummerierung Hinzufügen   
+```{r}
+final$observation <- (1:91)
+```
+
+# 5. Aufbereitete Datei speichen
+
+```{r}
+write.csv(final, file = "20230505_final.csv")
+```
+
+

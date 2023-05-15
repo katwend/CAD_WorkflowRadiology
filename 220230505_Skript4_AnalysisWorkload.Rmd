@@ -1,0 +1,177 @@
+---
+title: "Skript 5 Workload"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-02-09"
+---
+
+
+# Pakete laden
+Laden Sie in diesem Code-Chunk alle Pakete, die sie benötigen. **Laden Sie Pakete immer am Anfang der Datei.**
+```{r,echo=F }
+library(car)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(nlme)
+library(psych)
+library(mvnormtest)
+library(conflicted)
+library(ez)
+library(lm.beta)
+library(performance)
+```
+
+
+
+```{r,echo=F }
+getwd()
+setwd("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten")
+final <- read.csv("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten/20230505_final.csv")
+
+```
+
+Laptop
+setwd("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten")
+final <- read.csv("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten/final.csv")
+
+UKB
+setwd("C:/Users/50117334/sciebo/ifps/quantib/Daten")
+final <- read.csv("C:/Users/50117334/sciebo/IfPS/quantib/Daten/final.csv")
+
+
+# 1. Modell bauen
+
+## Need for Multilevel
+Baseline Model: in which only the intercept is included.
+```{r}
+interceptOnlytlx <-gls(tlx_m ~ 1, data = final, method = "ML")
+```
+
+Include variation in intercepts: now the intercepts are allowed to vary across contexts, to see whether the fit of the model has improved.
+```{r}
+randomInterceptOnlytlx <-lme(tlx_m ~ 1, data = final, random = ~1|pseudo, method = "ML")
+```
+Modellvergleich via ANOVA: Assessing the need for a multilevel model. If varying intercepts improve the modelfit, continue with multilevel modelling.
+```{r}
+anova(interceptOnlytlx, randomInterceptOnlytlx)
+```
+
+-->Modelverbesserungdurch random slopes
+
+
+## mit Phase als Prädiktor
+
+```{r}
+m_tlx1 <- nlme::gls(tlx_m ~ phase,
+                          data = final,
+                          method = "ML")
+
+m_tlx2 <- nlme::lme(tlx_m ~ phase,
+                          data = final, random = ~1 | pseudo,
+                          method = "ML")
+
+anova(m_tlx1, m_tlx2)
+```
+--> Modellverbesserung durch random Intercepts
+
+## Random Slopes
+```{r}
+m_tlx3 <- nlme::lme(tlx_m ~ phase,
+                          data = final, random = ~phase | pseudo,
+                          method = "ML", control = lmeControl(opt = 'optim'))
+anova(m_tlx2, m_tlx3)
+```
+
+--> Modellverbesserung bei random slopes
+
+
+## Pi-RADS aufnehmen
+
+```{r}
+m_tlx4 <- nlme::lme(tlx_m ~ phase * PI.RADS,
+                          data = final, random = ~phase | pseudo,
+                          method = "ML", control = lmeControl(opt = 'optim'))
+
+```
+
+```{r}
+anova(m_tlx3, m_tlx4)
+```
+-- Modellverbesserung durch PI-RADS
+
+
+# 2. Zusammenfassung finales Modell TLX
+
+TLX_M~Phase*PI-RADS
+
+```{r}
+summary(m_tlx4)
+nlme::intervals(m_tlx4)
+```
+
+# 3. Varianzaufklärung
+
+```{r}
+# Nakagawa & Schielzeth's (2013)
+
+r2_nakagawa(m_tlx4)
+
+```
+
+
+# 4. Annahmen prüfen
+
+https://ademos.people.uic.edu/Chapter18.html
+
+## Assumption 1 - Linearity
+
+A regression analysis is meant to fit the best rectilinear line that explains the most data given your set of parameters. Therefore, the base models rely on the assumption that your data follows a straight line (though the models can be expanded to handle curvilinear data).
+
+Graphically, plotting the model residuals (the difference between the observed value and the model-estimated value) vs the predictor is one simple way to test. If a pattern emerges (anything that looks non-random), a higher order term may need to be included or you may need to mathematically trans
+
+```{r}
+plot(m_tlx4)
+Plot.Model.F.Linearity1<-plot(resid(m_tlx4),m_tlx4$tlx_m) # sollte zufällig aussehen
+```
+
+## Assumption 2 Homogeneity of Variance
+
+Regression models assume that variance of the residuals is equal across groups. In this case, the groups we’re referring to are at the individual (i.e. subject) level.
+
+R is an excellent program for extracting and storing your model residuals. After we have them in place, we can do a simple ANOVA to determine if they’re different for each person. This procedure is a variation of “Levene’s Test”. Essentially, we’ll extract the residuals from the model, place them in our original table, take their absolute value, and then square them (for a more robust analysis with respect to issues of normality, see Glaser 2006). Finally we’ll take a look at the ANOVA of the between subjects residuals. Let’s give it a shot below:
+
+Since the p value is greater than 0.05, we can say that the variance of the residuals is equal and therefore the assumption of homoscedasticity is met Note: R does have built-in or package made Levene (and less the flexible Bartlett) tests, but I couldn’t figure out how to implement them with respect to lmer. Feel free to explore these options on your own
+
+```{r}
+#for this portion of the analysis, we need to revisit about statistical significance - since the assumption is that the variance is not going to differ, we would hope to see NO STATISTICAL DIFFERENCES in the following procedure (i.e. p>0.05) to confirm that -
+
+final$Model.F.Res1<- residuals(m_tlx4) #extracts the residuals and places them in a new column in our original data table
+final$Abs.Model.F.Res1 <-abs(final$Model.F.Res1) #creates a new column with the absolute value of the residuals
+final$Model.F.Res21 <- final$Abs.Model.F.Res1^2 #squares the absolute values of the residuals to provide the more robust estimate
+Levene.Model.F1 <- lm(Model.F.Res21 ~ pseudo, data=final) #ANOVA of the squared residuals
+anova(Levene.Model.F1) #displays the results
+```
+
+## Assumption 3: The residuals of the model are normally distributed.
+
+Regression models don’t require that outcome variables need to be normally distributed (see: Logistic or Poisson regression models), however MLM assume that the residuals of the analysis ARE normally distributed.
+
+QQ plots (which are easily obtained in standard regression modeling in R) can provide an estimation of where the standardized residuals lie with respect to normal quantiles. Strong deviation from the provided line indicates that the residuals themselves are not normally distributed.
+
+
+
+```{r}
+#We ll need few packages
+library(effects)
+library(sjPlot)
+#Try with model_plot (argument for type can be varied)
+plot_model(m_tlx4, type='diag') # you can ajust type (see package info: ?plot_model)
+```
+
+ist noch in Ordnung
+
+
+
+

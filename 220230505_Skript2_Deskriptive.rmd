@@ -1,0 +1,277 @@
+---
+title: "Deskriptive Daten"
+output: html_document
+date: "2022-10-18"
+---
+
+# Vorbeitung
+## Pakete laden
+```{r, include=FALSE}
+library(car)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(nlme)
+library(psych)
+library(mvnormtest)
+library(conflicted)
+library(ez)
+library(lm.beta)
+library(sjmisc)
+library(Hmisc)
+library(CTT)
+library(sjlabelled)
+library(lubridate)
+library(hms)
+library(tidyverse)
+library(knitr)
+library(its.analysis)
+library(lmtest)
+library(Hmisc)
+library(corrplot)
+```
+
+## Daten einlesen
+
+```{r}
+getwd()
+setwd("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten")
+final <- read.csv("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten/20230505_final.csv")
+```
+
+UKB
+setwd("C:/Users/50117334/sciebo/ifps/quantib/Daten")
+final <- read.csv("C:/Users/50117334/sciebo/IfPS/quantib/Daten/final.csv")
+
+Laptop
+setwd("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten")
+final <- read.csv("C:/Users/Katharina Wenderott/Documents/22.02/IfPS/quantib/Daten/final.csv")
+
+
+# 1. Deskriptive Statistik
+
+
+## Anzahl Radiolog*innen pro Phase
+
+```{r}
+table(final$pseudo,group=final$phase )
+```
+
+## Deskriptive Statistik nach Gruppen
+
+```{r}
+descr <- final
+
+descr$t1_cor <- as.numeric(descr$t1_cor)
+descr$t2_cor <- as.numeric(descr$t2_cor)
+descr$t3_cor <- as.numeric(descr$t3_cor)
+descr$time <- as.numeric(descr$time)
+descr$time_cor <- as.numeric(descr$time_cor)
+descr$inter <- as.numeric(descr$inter)
+descr$PI.RADS <- as.numeric(descr$PI.RADS)
+
+```
+
+### Werte umrechnen
+
+Sekunden in Minuten
+
+```{r}
+descr$time_m_min <- as.numeric(descr$time_cor)/60 
+descr$t1_c_min <- as.numeric(descr$t1_cor)/60 
+descr$t23_c_min <- as.numeric(descr$t23_cor)/60 
+descr$i_rate_h <- descr$inter/(descr$time_m_min/60)
+```
+
+### Tabelle Deskriptiver Werte
+
+```{r}
+des_stat <- descr[,c("phase","time_m_min", "t1_c_min", "t23_c_min" , "tlx_m", "stai_m", "inter","i_rate_h", "PI.RADS" )]
+
+table1 <- describeBy(des_stat, group=des_stat$phase,  digits = 3, mat=TRUE)
+
+kable(table1, digits = 3)
+```
+
+### PI-RADS
+
+Vergleich Mittelwert
+
+Unterscheidet sich PI-RADS signifikant zwischen den Phasen? --> Stichprobenbeschreibung
+
+```{r}
+t.test(PI.RADS ~ phase, data = final)
+```
+
+
+# 2. Korrelationsmatrix aller interessierenden Varablen
+
+The output of the function rcorr() is a list containing the following elements : - r : the correlation matrix - n : the matrix of the number of observations used in analyzing each pair of variables - P : the p-values corresponding to the significance levels of correlations. 
+
+```{r}
+cor_matrix <- rcorr(as.matrix(des_stat[,2:9]))
+cor_matrix
+
+```
+
+### Pre Implementation
+
+```{r}
+
+cor_matrix_pre <- rcorr(as.matrix(des_stat[1:50,2:9]))
+
+cor_matrix_pre_picture <- des_stat[1:50,2:9] %>% cor(use="complete.obs") %>% round(2)
+
+corrplot(cor_matrix_pre_picture , type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+```
+
+### Post implementation
+
+```{r}
+
+cor_matrix_post <- rcorr(as.matrix(des_stat[51:91,2:9]))
+
+cor_matrix_post_picture <- des_stat[51:91,2:9] %>% cor(use="complete.obs") %>% round(2)
+
+corrplot(cor_matrix_post_picture , type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+```
+
+
+# 3. Missing Values
+
+Proportion missing values berechnen
+
+```{r}
+# calculating the product of dimensions of dataframe
+totalcells = prod(dim(final))
+print("Total number of cells ")
+print(totalcells)
+
+# calculating the number of cells with na
+missingcells = sum(is.na(final))
+print("Missing value cells")
+print(missingcells)
+
+# calculating percentage of missing values
+percentage = (missingcells * 100 )/(totalcells)
+print("Percentage of missing values' cells")
+print (percentage)
+
+
+```
+
+# 4. Histogramme 
+
+## Histogram Dauer Befundung
+
+```{r}
+# Histogram for time
+qplot(descr$time_cor,
+      geom="histogram",
+      binwidth = 150,  
+      main = "Histogram Dauer Befundung", 
+      xlab = "Dauer in Sekunden",  
+      fill=descr$phase, 
+      col=I("black"), alpha=I(.2))
+```
+
+## Histogram Workload
+
+```{r}
+qplot(descr$tlx_m,
+      geom="histogram",
+      binwidth = 5,  
+      main = "Histogram Workload", 
+      xlab = "Mittelwert TLX",  
+      fill=descr$phase, 
+      col=I("black"), alpha=I(.2))
+```
+
+## Histogram Stress
+
+```{r}
+qplot(descr$stai_m,
+      geom="histogram",
+      main = "Histogram Stress", 
+      xlab = "Mittelwert STAI",  
+      fill=descr$phase, 
+      col=I("black"), alpha=I(.2))
+```
+
+
+## Histogram PI-RADS
+
+```{r}
+# Objekt erstellen
+plot4 <- ggplot(final, aes(x = PI.RADS, fill = phase))
+
+# Ebenen hinzufügen und Plot anzeigen
+plot4 + 
+  geom_histogram(position = "dodge") +
+  labs(title = "Histogram PI-RADS",
+       x = "Häufigkeit") 
+
+```
+
+
+# 5. Bivariate Analysen
+
+## Zusammenhang Dauer Befundung & Stress
+
+```{r}
+# Objekt erstellen
+plot2 <- ggplot(final, aes(x = time_cor, y = stai_m, color = phase))
+
+# Ebenen hinzufügen und Plot anzeigen
+plot2 + 
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  labs(title = "Dauer der Befundung und Stressskala",
+       x = "Dauer in Sekunden",
+       y = "Stress") +
+  theme_classic()
+```
+
+## Zusammenhang Dauer Befundung & Workload
+
+```{r}
+
+# Objekt erstellen
+plot1 <- ggplot(final, aes(x = time_cor, y = tlx_m, color = phase))
+
+# Ebenen hinzufügen und Plot anzeigen
+plot1 + 
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  labs(title = "Dauer der Befundung und Workload",
+       x = "Dauer in Sekunden (korrigiert für Unterbrechungszeit)",
+       y = "Workload") +
+  theme_classic()
+```
+
+
+### Zusammenhang Dauer Befundung PI-RADS
+
+```{r}
+
+# Objekt erstellen
+plot1 <- ggplot(final, aes(x = PI.RADS, y = time_cor, color = phase))
+
+# Ebenen hinzufügen und Plot anzeigen
+plot1 + 
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  labs(title = "Zusammenhang PIRADS und Workload",
+       x = "PIRADS",
+       y = "Workload") +
+  theme_classic()
+```
+
+
+
+
+
+
